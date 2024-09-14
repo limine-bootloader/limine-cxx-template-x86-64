@@ -9,28 +9,20 @@ override OUTPUT := kernel
 # Convenience macro to reliably declare user overridable variables.
 override USER_VARIABLE = $(if $(filter $(origin $(1)),default undefined),$(eval override $(1) := $(2)))
 
-# Target architecture to build for. Default to x86_64.
-$(call USER_VARIABLE,KARCH,x86_64)
-
 # Destination directory on install (should always be empty by default).
 $(call USER_VARIABLE,DESTDIR,)
 
 # Install prefix; /usr/local is a good, standard default pick.
 $(call USER_VARIABLE,PREFIX,/usr/local)
 
-# Check if the architecture is supported.
-ifeq ($(filter $(KARCH),aarch64 loongarch64 riscv64 x86_64),)
-    $(error Architecture $(KARCH) not supported)
-endif
-
 # User controllable C compiler command.
-$(call USER_VARIABLE,KCC,clang)
+$(call USER_VARIABLE,KCC,cc)
 
 # User controllable C++ compiler command.
-$(call USER_VARIABLE,KCXX,clang++)
+$(call USER_VARIABLE,KCXX,c++)
 
 # User controllable linker command.
-$(call USER_VARIABLE,KLD,ld.lld)
+$(call USER_VARIABLE,KLD,ld)
 
 # User controllable C flags.
 $(call USER_VARIABLE,KCFLAGS,-g -O2 -pipe)
@@ -41,10 +33,8 @@ $(call USER_VARIABLE,KCXXFLAGS,$(KCFLAGS))
 # User controllable C/C++ preprocessor flags. We set none by default.
 $(call USER_VARIABLE,KCPPFLAGS,)
 
-ifeq ($(KARCH),x86_64)
-    # User controllable nasm flags.
-    $(call USER_VARIABLE,KNASMFLAGS,-F dwarf -g)
-endif
+# User controllable nasm flags.
+$(call USER_VARIABLE,KNASMFLAGS,-F dwarf -g)
 
 # User controllable linker flags. We set none by default.
 $(call USER_VARIABLE,KLDFLAGS,)
@@ -67,12 +57,20 @@ override SHARED_FLAGS := \
     -fno-lto \
     -fno-PIC \
     -ffunction-sections \
-    -fdata-sections
+    -fdata-sections \
+    -m64 \
+    -march=x86-64 \
+    -mno-80387 \
+    -mno-mmx \
+    -mno-sse \
+    -mno-sse2 \
+    -mno-red-zone \
+    -mcmodel=kernel
 
 # Internal C/C++ preprocessor flags that should not be changed by the user.
 override KCPPFLAGS_C := \
     -I src \
-    -isystem freestnd-c-hdrs/$(KARCH)/include \
+    -isystem freestnd-c-hdrs/x86_64/include \
     $(KCPPFLAGS) \
     -MMD \
     -MP
@@ -80,102 +78,11 @@ override KCPPFLAGS_C := \
 # Internal C++ only preprocessor flags.
 override KCPPFLAGS_CXX := \
     -I src \
-    -isystem freestnd-c-hdrs/$(KARCH)/include \
-    -isystem freestnd-cxx-hdrs/$(KARCH)/include \
+    -isystem freestnd-c-hdrs/x86_64/include \
+    -isystem freestnd-cxx-hdrs/x86_64/include \
     $(KCPPFLAGS) \
     -MMD \
     -MP
-
-ifeq ($(KARCH),x86_64)
-    # Internal nasm flags that should not be changed by the user.
-    override KNASMFLAGS += \
-        -Wall
-endif
-
-# Architecture specific internal flags.
-ifeq ($(KARCH),x86_64)
-    ifeq ($(KCC),clang)
-        override KCC += \
-            -target x86_64-unknown-none
-    endif
-    ifeq ($(KCXX),clang++)
-        override KCXX += \
-            -target x86_64-unknown-none
-    endif
-    override SHARED_FLAGS += \
-        -m64 \
-        -march=x86-64 \
-        -mno-80387 \
-        -mno-mmx \
-        -mno-sse \
-        -mno-sse2 \
-        -mno-red-zone \
-        -mcmodel=kernel
-    override KLDFLAGS += \
-        -m elf_x86_64
-    override KNASMFLAGS += \
-        -f elf64
-endif
-ifeq ($(KARCH),aarch64)
-    ifeq ($(KCC),clang)
-        override KCC += \
-            -target aarch64-unknown-none
-    endif
-    ifeq ($(KCXX),clang++)
-        override KCXX += \
-            -target aarch64-unknown-none
-    endif
-    override SHARED_FLAGS += \
-        -mgeneral-regs-only
-    override KLDFLAGS += \
-        -m aarch64elf
-endif
-ifeq ($(KARCH),riscv64)
-    ifeq ($(KCC),clang)
-        override KCC += \
-            -target riscv64-unknown-none
-    endif
-    ifeq ($(shell $(KCC) --version | grep -i 'clang'),)
-        override KCFLAGS += \
-            -march=rv64imac_zicsr_zifencei
-    else
-        override KCFLAGS += \
-            -march=rv64imac
-    endif
-    ifeq ($(KCXX),clang++)
-        override KCXX += \
-            -target riscv64-unknown-none
-    endif
-    ifeq ($(shell $(KCXX) --version | grep -i 'clang'),)
-        override KCXXFLAGS += \
-            -march=rv64imac_zicsr_zifencei
-    else
-        override KCXXFLAGS += \
-            -march=rv64imac
-    endif
-    override SHARED_FLAGS += \
-        -mabi=lp64 \
-        -mno-relax
-    override KLDFLAGS += \
-        -m elf64lriscv \
-        --no-relax
-endif
-ifeq ($(KARCH),loongarch64)
-    ifeq ($(KCC),clang)
-        override KCC += \
-            -target loongarch64-unknown-none
-    endif
-    ifeq ($(KCXX),clang++)
-        override KCXX += \
-            -target loongarch64-unknown-none
-    endif
-    override SHARED_FLAGS += \
-        -march=loongarch64 \
-        -mabi=lp64s
-    override KLDFLAGS += \
-        -m elf64loongarch \
-        --no-relax
-endif
 
 # Internal C flags that should not be changed by the user.
 override KCFLAGS += \
@@ -189,34 +96,35 @@ override KCXXFLAGS += \
     -fno-exceptions \
     $(SHARED_FLAGS)
 
+# Internal nasm flags that should not be changed by the user.
+override KNASMFLAGS += \
+    -Wall \
+    -f elf64
+
 # Internal linker flags that should not be changed by the user.
 override KLDFLAGS += \
+    -m elf_x86_64 \
     -nostdlib \
     -static \
     -z max-page-size=0x1000 \
     -gc-sections \
-    -T linker-$(KARCH).ld
+    -T linker.ld
 
 # Use "find" to glob all *.c, *.cpp, *.S, and *.asm files in the tree and obtain the
 # object and header dependency file names.
 override CFILES := $(shell cd src && find -L * -type f -name '*.c' | LC_ALL=C sort)
 override CXXFILES := $(shell cd src && find -L * -type f -name '*.cpp' | LC_ALL=C sort)
 override ASFILES := $(shell cd src && find -L * -type f -name '*.S' | LC_ALL=C sort)
-ifeq ($(KARCH),x86_64)
 override NASMFILES := $(shell cd src && find -L * -type f -name '*.asm' | LC_ALL=C sort)
-endif
-override OBJ := $(addprefix obj-$(KARCH)/,$(CFILES:.c=.c.o) $(CXXFILES:.cpp=.cpp.o) $(ASFILES:.S=.S.o))
-ifeq ($(KARCH),x86_64)
-override OBJ += $(addprefix obj-$(KARCH)/,$(NASMFILES:.asm=.asm.o))
-endif
-override HEADER_DEPS := $(addprefix obj-$(KARCH)/,$(CFILES:.c=.c.d) $(CXXFILES:.cpp=.cpp.d) $(ASFILES:.S=.S.d))
+override OBJ := $(addprefix obj/,$(CFILES:.c=.c.o) $(CXXFILES:.cpp=.cpp.o) $(ASFILES:.S=.S.o) $(NASMFILES:.asm=.asm.o))
+override HEADER_DEPS := $(addprefix obj/,$(CFILES:.c=.c.d) $(CXXFILES:.cpp=.cpp.d) $(ASFILES:.S=.S.d))
 
 # Default target.
 .PHONY: all
-all: bin-$(KARCH)/$(OUTPUT)
+all: bin/$(OUTPUT)
 
 # Link rules for the final executable.
-bin-$(KARCH)/$(OUTPUT): GNUmakefile linker-$(KARCH).ld $(OBJ)
+bin/$(OUTPUT): GNUmakefile linker.ld $(OBJ)
 	mkdir -p "$$(dirname $@)"
 	$(KLD) $(OBJ) $(KLDFLAGS) -o $@
 
@@ -224,45 +132,43 @@ bin-$(KARCH)/$(OUTPUT): GNUmakefile linker-$(KARCH).ld $(OBJ)
 -include $(HEADER_DEPS)
 
 # Compilation rules for *.c files.
-obj-$(KARCH)/%.c.o: src/%.c GNUmakefile
+obj/%.c.o: src/%.c GNUmakefile
 	mkdir -p "$$(dirname $@)"
 	$(KCC) $(KCFLAGS) $(KCPPFLAGS_C) -c $< -o $@
 
 # Compilation rules for *.cpp files.
-obj-$(KARCH)/%.cpp.o: src/%.cpp GNUmakefile
+obj/%.cpp.o: src/%.cpp GNUmakefile
 	mkdir -p "$$(dirname $@)"
 	$(KCXX) $(KCXXFLAGS) $(KCPPFLAGS_CXX) -c $< -o $@
 
 # Compilation rules for *.S files.
-obj-$(KARCH)/%.S.o: src/%.S GNUmakefile
+obj/%.S.o: src/%.S GNUmakefile
 	mkdir -p "$$(dirname $@)"
 	$(KCC) $(KCFLAGS) $(KCPPFLAGS_C) -c $< -o $@
 
-ifeq ($(KARCH),x86_64)
 # Compilation rules for *.asm (nasm) files.
-obj-$(KARCH)/%.asm.o: src/%.asm GNUmakefile
+obj/%.asm.o: src/%.asm GNUmakefile
 	mkdir -p "$$(dirname $@)"
 	nasm $(KNASMFLAGS) $< -o $@
-endif
 
 # Remove object files and the final executable.
 .PHONY: clean
 clean:
-	rm -rf bin-$(KARCH) obj-$(KARCH)
+	rm -rf bin obj
 
 # Remove everything built and generated including downloaded dependencies.
 .PHONY: distclean
-distclean:
-	rm -rf bin-* obj-* freestnd-c-hdrs freestnd-cxx-hdrs src/cc-runtime.c src/limine.h
+distclean: clean
+	rm -rf freestnd-c-hdrs freestnd-cxx-hdrs src/cc-runtime.c src/limine.h
 
 # Install the final built executable to its final on-root location.
 .PHONY: install
 install: all
 	install -d "$(DESTDIR)$(PREFIX)/share/$(OUTPUT)"
-	install -m 644 bin-$(KARCH)/$(OUTPUT) "$(DESTDIR)$(PREFIX)/share/$(OUTPUT)/$(OUTPUT)-$(KARCH)"
+	install -m 644 bin/$(OUTPUT) "$(DESTDIR)$(PREFIX)/share/$(OUTPUT)/"
 
 # Try to undo whatever the "install" target did.
 .PHONY: uninstall
 uninstall:
-	rm -f "$(DESTDIR)$(PREFIX)/share/$(OUTPUT)/$(OUTPUT)-$(KARCH)"
+	rm -f "$(DESTDIR)$(PREFIX)/share/$(OUTPUT)/$(OUTPUT)"
 	-rmdir "$(DESTDIR)$(PREFIX)/share/$(OUTPUT)"
